@@ -27,4 +27,4 @@ An agentic LLM workflow that takes an incoming supplier invoice and produces a d
 
 Sole developer. I designed the extraction prompts and JSON schemas, built the PO-matching logic and tolerance rules, integrated with the ERP's API for draft-voucher creation, and worked directly with the AP team to tune the exception thresholds until they trusted the queue.
 
-*A generic, public rebuild of the extraction stage is in progress and will be linked here.*
+*A generic, public rebuild of the extraction stage: [ai-document-extractor](https://github.com/k1ek1ng/ai-document-extractor).*
