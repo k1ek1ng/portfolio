@@ -1,28 +1,80 @@
-# Case study: AR invoicing pipeline
+# AR invoice delivery
 
-*Cypress Industries · AI Automation Internship · code proprietary, write-up shared with permission*
+*Cypress Industries — AI Automation Internship, summer 2026. Code is proprietary;
+this write-up is shared with permission. Customer names are omitted.*
 
-## Context
+Every day AR generates the day's customer invoices, then writes an email per
+customer and attaches their invoices by hand. The work is not hard; it is just
+long enough that the exceptions — odd terms, consolidated invoices, credit holds —
+wait behind it.
 
-Customer invoicing at Cypress ran off a daily ERP batch: staff generated invoice documents one at a time, then wrote individual emails to send them. The manual step meant invoices went out late, formatting was inconsistent, and a backlog of exceptions (odd billing terms, consolidated invoices, credit holds) built up because routine invoices consumed the team's time.
+I built the tool that does the assembly. It groups the day's invoice PDFs by
+customer and writes **one draft per customer**, with that customer's invoices
+attached. A person reviews the drafts and sends them.
 
-## What I built
+It never sends. Not "the send flag defaults to off" — there is no SMTP or network
+send path anywhere in the code. The safety is structural, so it cannot be undone
+by a misconfiguration.
 
-A Python pipeline that turns the daily ERP invoice batch into finished invoice PDFs and staged, context-aware email drafts — reviewed and sent by a person.
+## The actual problem was identity, not email
 
-## Architecture
+The invoice export and AR's master email sheet share no clean key. The export has
+a stable customer ID and the full legal name. The master sheet has AR's shorthand
+and no ID. The names do not align.
 
-- A scheduled job pulls the day's invoice batch from the ERP
-- Each invoice is rendered to a branded PDF from a template (line items, terms, remit-to)
-- For each customer, the pipeline drafts an email that reflects context — first invoice vs. repeat, past-due balance reminders, multi-invoice consolidation — and stages it as a draft in the mail system
-- Staff review the drafts each morning and send; anything unusual is flagged rather than guessed at
+The obvious fix is fuzzy name matching. I built the matcher, ran it on the real
+data, and it failed in the way that matters: for the largest customer — which has
+US, Mexico, and portal-only variants — **the correct match does not score
+highest.** A confident wrong answer here sends one customer's invoice to another.
 
-## Impact
+So the tool does not decide who gets an invoice. Recipients come from a curated
+map keyed on the stable customer ID, where a person has confirmed each pairing
+once. The matcher still does the legwork — it proposes; it never routes.
 
-- Routine invoicing went from a person-hours task to a review-and-send pass
-- Invoices go out the same day the ERP batch runs
-- The exception backlog shrank because staff time shifted from routine generation to actually resolving exceptions
+Every customer lands in exactly one bucket, and only one of them produces a draft:
+
+| bucket | gets a draft |
+|---|---|
+| confirmed, has an email | yes |
+| portal / Ariba customer | no — handled in their portal |
+| unmapped or needs review | no — never guessed |
+| a PDF whose invoice number is not in the export | no |
+
+## Making the upkeep survivable
+
+The map needs maintenance, and maintenance is where handed-off tools die. Two
+decisions kept it small:
+
+**Seed reactively.** Do not pre-fill the entire customer list. Run on a real batch and let
+the unmapped list say exactly who is missing. Within a few batches the recurring
+set is covered, and nobody spent a day on customers who invoice twice a year.
+
+**Confirm inline, in the same run.** When an unknown customer appears, the run
+stops and shows a best guess: accept, type the correct address, mark as portal,
+or skip. Confirmations are saved and included in **that same run's** drafts — no
+second pass. Unattended runs skip the prompt and flag instead.
+
+The same pattern covers filing: PDFs are copied into AR's existing per-customer
+folders, whose short names do not match the legal names either, so folders are
+confirmed once the same way. It copies, never moves, never overwrites, and fails
+loudly if the destination is unreachable.
+
+Before attaching, each PDF is verified against its own invoice record, so a
+customer cannot receive someone else's invoice even if the grouping is wrong.
+
+## The handoff
+
+The tool is deployed and run by AR, not by me. That meant writing for a reader who
+has not seen the code: a one-click `.bat` runner, a plain-language guide, and an
+explicit list of what the tool will never do — never sends, never writes to the
+ERP, never guesses an address. The guide leads with that list, because the first
+question anyone asks about an automation touching customer email is what it can
+do when nobody is watching.
 
 ## My role
 
-Sole developer. Built the batch integration, PDF templating, and the email-drafting logic including the context rules, and iterated with the AR team on tone and edge cases (they rewrote my first draft templates, correctly).
+Sole developer. Grouping and drafting, the customer map and its confirmation
+flows, the PDF verification, the filing step, deployment, and the operator
+documentation. AR rewrote my first email templates, which was the correct
+outcome — I know what the pipeline can prove, they know how they talk to
+customers.
